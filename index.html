@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F3B2D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pooper Scout">
+<title>Pooper Scout</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --ink:#17251D; --surface:#FFFFFF; --surface-2:#EEF2EC; --line:#D3DCD1;
+  --field:#1F3B2D; --on-field:#F4F7F2; --waymark:#F2C230; --on-waymark:#1F3B2D;
+  --muted:#56665B; --focus:#1E6FD9;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --ink:#E7EEE8; --surface:#16211B; --surface-2:#22322A; --line:#35483C;
+    --field:#0F1F17; --on-field:#E7EEE8; --waymark:#F2C230; --on-waymark:#14261C;
+    --muted:#A3B5A9; --focus:#7FB2FF;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{
+  font-family: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color:var(--ink); background:var(--field); font-size:16px; line-height:1.4;
+  -webkit-tap-highlight-color: transparent;
+}
+button,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+#map{position:fixed; inset:0; background:var(--surface-2)}
+
+/* Top bar */
+.topbar{
+  position:fixed; top:0; left:0; right:0; z-index:1000;
+  display:flex; align-items:center; gap:10px;
+  padding: calc(env(safe-area-inset-top) + 10px) 12px 10px 16px;
+  background:var(--field); color:var(--on-field);
+  box-shadow:0 2px 10px rgba(0,0,0,.18);
+}
+.brand{font-weight:800; font-size:1.125rem; letter-spacing:-.01em; display:flex; align-items:center; gap:9px; margin:0}
+.brand-mark{width:24px;height:24px;border-radius:50%;background:var(--waymark);display:grid;place-items:center;flex:none}
+.count{font-size:.8125rem; opacity:.85; margin-left:auto; white-space:nowrap}
+.top-btn{
+  border:1.5px solid rgba(255,255,255,.35); background:transparent; color:var(--on-field);
+  border-radius:999px; padding:6px 12px; font-size:.875rem; font-weight:700; cursor:pointer;
+  display:flex; align-items:center; gap:6px;
+}
+.top-btn[aria-expanded="true"]{background:var(--on-field);color:var(--field);border-color:var(--on-field)}
+
+/* Filter / legend panel */
+.panel{
+  position:fixed; z-index:1001; right:12px; top:calc(env(safe-area-inset-top) + 58px);
+  background:var(--surface); border-radius:14px; padding:8px; width:min(290px, calc(100vw - 24px));
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.panel[hidden]{display:none}
+.f{display:flex; align-items:center; gap:10px; padding:9px 8px; border-radius:10px; cursor:pointer}
+.f:hover{background:var(--surface-2)}
+.f input{width:20px;height:20px;accent-color:var(--field);margin:0;flex:none}
+.sw{display:flex; align-items:flex-end; gap:2px; min-width:58px; justify-content:center}
+.sw svg{display:block}
+.panel-note{font-size:.8125rem;color:var(--muted);padding:6px 8px 4px;margin:0}
+
+/* Banner */
+.banner{
+  position:fixed; z-index:999; left:12px; right:12px; top:calc(env(safe-area-inset-top) + 60px);
+  background:var(--surface); color:var(--ink); border-left:5px solid var(--waymark);
+  padding:10px 12px; border-radius:10px; font-size:.875rem; box-shadow:0 6px 18px rgba(0,0,0,.18);
+  display:flex; gap:10px; align-items:flex-start;
+}
+.banner[hidden]{display:none}
+.banner button{margin-left:auto;background:none;border:0;font-weight:700;cursor:pointer;padding:0 4px;color:var(--muted)}
+
+/* Floating controls */
+.report-btn{
+  position:fixed; z-index:1000; left:50%; transform:translateX(-50%);
+  bottom:calc(env(safe-area-inset-bottom) + 26px);
+  display:flex; align-items:center; gap:10px;
+  background:var(--waymark); color:var(--on-waymark); border:3px solid var(--field);
+  border-radius:999px; padding:14px 26px 14px 18px; font-size:1.125rem; font-weight:800;
+  box-shadow:0 8px 22px rgba(0,0,0,.3); cursor:pointer;
+}
+.report-btn:active{transform:translateX(-50%) scale(.97)}
+.locate-btn{
+  position:fixed; z-index:1000; right:14px; bottom:calc(env(safe-area-inset-bottom) + 100px);
+  width:50px;height:50px;border-radius:50%; border:0; background:var(--surface); color:var(--ink);
+  box-shadow:0 4px 14px rgba(0,0,0,.25); display:grid; place-items:center; cursor:pointer;
+}
+body.reporting .report-btn, body.reporting .locate-btn{display:none}
+
+/* Bottom sheet */
+.sheet{
+  position:fixed; z-index:1002; left:0; right:0; bottom:0;
+  background:var(--surface); color:var(--ink);
+  border-radius:20px 20px 0 0; box-shadow:0 -8px 30px rgba(0,0,0,.25);
+  padding:6px 16px calc(env(safe-area-inset-bottom) + 16px);
+  max-height:78vh; overflow:auto;
+  transform:translateY(0); transition:transform .22s ease-out;
+}
+.sheet[hidden]{display:block; transform:translateY(110%); visibility:hidden}
+@media (min-width:640px){ .sheet{left:50%; right:auto; width:440px; margin-left:-220px} }
+.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 6px}
+.sheet-head{display:flex;align-items:center;gap:6px;min-height:44px}
+.sheet-head h2{font-size:1.25rem;margin:0;flex:1;font-weight:800;letter-spacing:-.01em}
+.ghost{width:40px;height:40px;border-radius:50%;border:0;background:var(--surface-2);display:grid;place-items:center;cursor:pointer;flex:none}
+.ghost[hidden]{display:none}
+.hint{color:var(--muted);font-size:.9375rem;margin:4px 0 12px}
+.loc-status{display:flex;gap:10px;align-items:center;font-weight:700;margin:6px 0 4px}
+.dot{width:12px;height:12px;border-radius:50%;flex:none;background:var(--line)}
+.dot.good{background:#2E9E5B}.dot.fair{background:#E0A100}.dot.weak{background:#D62828}.dot.hand{background:var(--focus)}
+.primary{
+  width:100%; border:0; border-radius:14px; padding:15px; margin-top:10px;
+  background:var(--field); color:var(--on-field); font-size:1.0625rem; font-weight:800; cursor:pointer;
+}
+@media (prefers-color-scheme: dark){ .primary{background:var(--waymark);color:var(--on-waymark)} }
+.primary:disabled{opacity:.45;cursor:default}
+.choices{display:grid;gap:10px}
+.choice{
+  display:flex;align-items:center;gap:14px;width:100%;text-align:left;cursor:pointer;
+  border:2px solid var(--line);background:var(--surface);border-radius:14px;padding:12px 14px;
+}
+.choice:hover{border-color:var(--muted)}
+.choice .ic{width:44px;display:flex;justify-content:center;flex:none}
+.choice strong{display:block;font-size:1.0625rem}
+.choice span.sub{display:block;color:var(--muted);font-size:.875rem}
+.photo-pick{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  border:2px dashed var(--line);border-radius:14px;padding:18px;cursor:pointer;font-weight:700;
+}
+.photo-pick input{position:absolute;width:1px;height:1px;opacity:0}
+.photo-preview{display:flex;gap:12px;align-items:center}
+.photo-preview img{width:84px;height:84px;object-fit:cover;border-radius:10px}
+.link-btn{background:none;border:0;color:var(--focus);font-weight:700;cursor:pointer;padding:6px 0}
+label.field{display:block;font-weight:700;margin:14px 0 6px}
+textarea{
+  width:100%;min-height:72px;resize:vertical;border:2px solid var(--line);border-radius:12px;
+  padding:10px;background:var(--surface);
+}
+.notice{font-size:.8125rem;color:var(--muted);margin:10px 0 0}
+.summary{display:flex;align-items:center;gap:10px;background:var(--surface-2);border-radius:12px;padding:8px 12px;margin-bottom:12px;font-weight:700}
+
+/* Pins */
+.pin{background:none;border:0}
+.pin svg{display:block;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))}
+
+/* Popups */
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--surface);color:var(--ink)}
+.leaflet-popup-content{margin:14px 16px;font-family:inherit;font-size:.9375rem}
+.leaflet-container a.leaflet-popup-close-button{color:var(--muted)}
+.pop-title{font-weight:800;font-size:1.0625rem;margin:0 0 4px;padding-right:12px}
+.pop-meta{color:var(--muted);font-size:.8125rem;margin:0}
+.pop-note{margin:8px 0 0}
+.pop img{width:100%;border-radius:10px;margin-top:10px;display:block}
+.pop-btn{
+  width:100%;margin-top:10px;border-radius:10px;padding:10px;cursor:pointer;font-weight:800;
+  border:2px solid var(--line);background:var(--surface);
+}
+.pop-btn.clear{background:var(--field);color:var(--on-field);border-color:var(--field)}
+.pop-btn.confirm{background:#2E9E5B;border-color:#2E9E5B;color:#fff}
+.leaflet-control-attribution{font-size:10px}
+.leaflet-bottom.leaflet-left{bottom:calc(env(safe-area-inset-bottom) + 20px)}
+body.reporting .leaflet-bottom.leaflet-left{display:none}
+
+/* Toast */
+.toast{
+  position:fixed;z-index:1003;left:50%;transform:translate(-50%,20px);opacity:0;
+  bottom:calc(env(safe-area-inset-bottom) + 100px);
+  background:var(--ink);color:var(--surface);padding:11px 18px;border-radius:999px;font-weight:700;
+  font-size:.9375rem;pointer-events:none;transition:opacity .2s, transform .2s;max-width:calc(100vw - 32px);text-align:center;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion: reduce){ .sheet,.toast{transition:none} }
+
+.fatal{position:fixed;inset:0;display:grid;place-items:center;padding:24px;color:var(--on-field);text-align:center}
+</style>
+</head>
+<body>
+
+<div id="map" aria-label="Map of reports"></div>
+
+<header class="topbar">
+  <h1 class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 24 24"><path d="M5 12h11M12 6l6 6-6 6" fill="none" stroke="#1F3B2D" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </span>
+    Pooper Scout
+  </h1>
+  <span id="count" class="count" aria-live="polite">Loading reports…</span>
+  <button id="filter-btn" class="top-btn" aria-expanded="false" aria-controls="filters">
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+    Show
+  </button>
+</header>
+
+<div id="filters" class="panel" hidden></div>
+
+<div id="banner" class="banner" role="status" hidden>
+  <span id="banner-text"></span>
+  <button id="banner-close" aria-label="Dismiss message">✕</button>
+</div>
+
+<button id="locate-btn" class="locate-btn" aria-label="Centre the map on my location">
+  <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+</button>
+
+<button id="report-btn" class="report-btn">
+  <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+  Report
+</button>
+
+<section id="sheet" class="sheet" role="dialog" aria-labelledby="sheet-title" hidden>
+  <div class="grab" aria-hidden="true"></div>
+  <div class="sheet-head">
+    <button id="sheet-back" class="ghost" aria-label="Back" hidden>
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <h2 id="sheet-title"></h2>
+    <button id="sheet-close" class="ghost" aria-label="Cancel report">
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div id="sheet-body"></div>
+</section>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+"use strict";
+const $ = s => document.querySelector(s);
+
+if (typeof L === "undefined") {
+  document.body.innerHTML = '<div class="fatal"><p>The map library couldn\'t load. Check your internet connection, then reopen the app.</p></div>';
+  return;
+}
+
+/* ---------- Report types and pin styles ---------- */
+const SIZES = { s: "Small (smear)", m: "Medium", l: "Large" };
+const TYPE_LABEL = { fouling: "Dog fouling", bin: "Full or overflowing bin", bag: "Dropped doggy-waste bag" };
+const PIN = {
+  s:       { fill: "#C8A27A", icon: "#FFFFFF", w: 30 },
+  m:       { fill: "#8B5A33", icon: "#FFF6EA", w: 35 },
+  l:       { fill: "#4A2E1A", icon: "#FFF6EA", w: 41 },
+  bin:     { fill: "#D62828", icon: "#000000", w: 36 },
+  bag:     { fill: "#1E6FD9", icon: "#000000", w: 36 },
+  cleared: { fill: "#8A9096", icon: "#FFFFFF", w: 30 },
+  draft:   { fill: "#F2C230", icon: "#1F3B2D", w: 40 }
+};
+
+function glyph(key, c) {
+  if (key === "s" || key === "m" || key === "l") {
+    return `<g fill="${c}"><ellipse cx="16" cy="20.6" rx="7.6" ry="3.2"/><ellipse cx="16" cy="16.7" rx="5.7" ry="2.8"/><ellipse cx="16" cy="13.1" rx="3.7" ry="2.3"/><path d="M15.1 11.3c.4-1.7 1.9-2.3 2.7-3.6.6 1.7-.2 3.1-1.4 3.8z"/></g>`;
+  }
+  if (key === "bin") {
+    return `<g fill="${c}"><rect x="13.6" y="6.4" width="4.8" height="2.3" rx="1"/><rect x="8.8" y="8.5" width="14.4" height="2.5" rx="1.1"/><path d="M10.1 12.1h11.8l-1.2 11.1a1.6 1.6 0 0 1-1.6 1.4h-6.2a1.6 1.6 0 0 1-1.6-1.4z"/></g><g stroke="${PIN.bin.fill}" stroke-width="1.2" stroke-linecap="round"><path d="M13.6 14.4l.4 7.8M16 14.4v7.8M18.4 14.4l-.4 7.8"/></g>`;
+  }
+  if (key === "bag") {
+    return `<path fill="${c}" d="M13.8 7.2l2.2 2.3 2.2-2.3 1 1.5-1.7 1.9c2.7.7 4.5 3.1 4.5 6.7 0 4.3-2.5 7.1-6 7.1s-6-2.8-6-7.1c0-3.6 1.8-6 4.5-6.7l-1.7-1.9z"/>`;
+  }
+  if (key === "draft") {
+    return `<circle cx="16" cy="15.8" r="5" fill="${c}"/>`;
+  }
+  return `<path d="M10.4 16.2l3.9 3.9 7.3-8.2" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+function pinSvg(key, scale) {
+  const p = PIN[key], w = Math.round(p.w * (scale || 1)), h = Math.round(w * 44 / 32);
+  return `<svg width="${w}" height="${h}" viewBox="0 0 32 44" aria-hidden="true"><path d="M16 1.2C7.8 1.2 1.2 7.7 1.2 15.8 1.2 27 16 42.8 16 42.8S30.8 27 30.8 15.8C30.8 7.7 24.2 1.2 16 1.2z" fill="${p.fill}" stroke="#fff" stroke-width="2"/>${glyph(key, p.icon)}</svg>`;
+}
+const iconCache = {};
+function makeIcon(key) {
+  if (iconCache[key]) return iconCache[key];
+  const p = PIN[key], h = Math.round(p.w * 44 / 32);
+  return (iconCache[key] = L.divIcon({ className: "pin", html: pinSvg(key), iconSize: [p.w, h], iconAnchor: [p.w / 2, h], popupAnchor: [0, -h + 6] }));
+}
+const pinKey = r => r.cleared ? "cleared" : (r.type === "fouling" ? r.size : r.type);
+const describe = r => r.type === "fouling" ? `Dog fouling, ${SIZES[r.size].toLowerCase()}` : TYPE_LABEL[r.type];
+
+/* ---------- Storage (shared across all users when available) ---------- */
+const shared = !!(window.storage && typeof window.storage.get === "function");
+const mem = new Map();
+const store = {
+  async list(prefix) {
+    if (!shared) return [...mem.keys()].filter(k => k.startsWith(prefix));
+    const r = await window.storage.list(prefix, true);
+    return ((r && r.keys) || []).map(k => typeof k === "string" ? k : k.key).filter(Boolean);
+  },
+  async get(key) {
+    if (!shared) return mem.has(key) ? mem.get(key) : null;
+    try { const r = await window.storage.get(key, true); return r ? r.value : null; }
+    catch (e) { return null; }
+  },
+  async set(key, val) {
+    if (!shared) { mem.set(key, val); return true; }
+    try { const r = await window.storage.set(key, val, true); return !!r; }
+    catch (e) { return false; }
+  }
+};
+
+/* ---------- UI helpers ---------- */
+let toastTimer;
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2800);
+}
+function banner(msg) { $("#banner-text").textContent = msg; $("#banner").hidden = false; }
+$("#banner-close").onclick = () => { $("#banner").hidden = true; };
+
+function ago(ts) {
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60); if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h} hour${h > 1 ? "s" : ""} ago`;
+  const d = Math.floor(h / 24); if (d < 30) return `${d} day${d > 1 ? "s" : ""} ago`;
+  return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/* ---------- Map ---------- */
+const map = L.map("map", { zoomControl: false }).setView([54.3, -2.5], 6);
+L.control.zoom({ position: "bottomleft" }).addTo(map);
+let tileErrors = 0;
+const CARTO_KEY = "cb1_53rk_1_2966b431f0905945b69867ac"; // free key from carto.com/basemaps/apikey, manage at dashboard.basemaps.carto.com
+L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_KEY}`, {
+  maxZoom: 20,
+  attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+}).on("tileerror", () => {
+  if (++tileErrors === 4) banner("The map background isn't loading. Check your internet connection, then reopen the app.");
+}).addTo(map);
+
+const groups = { fouling: L.layerGroup(), bin: L.layerGroup(), bag: L.layerGroup(), cleared: L.layerGroup() };
+const filters = { fouling: true, bin: true, bag: true, cleared: false };
+function applyFilters() {
+  for (const k in groups) { if (filters[k]) groups[k].addTo(map); else groups[k].remove(); }
+}
+applyFilters();
+
+let popupOpen = false;
+map.on("popupopen", () => { popupOpen = true; });
+map.on("popupclose", () => { popupOpen = false; });
+
+/* ---------- Reports ---------- */
+const reports = new Map();
+
+async function loadReports() {
+  try {
+    const keys = await store.list("report:");
+    const vals = await Promise.all(keys.map(k => store.get(k)));
+    reports.clear();
+    for (const v of vals) {
+      if (!v) continue;
+      try { const r = JSON.parse(v); if (r && r.id && TYPE_LABEL[r.type]) reports.set(r.id, r); } catch (e) {}
+    }
+    render();
+  } catch (e) {
+    $("#count").textContent = "Offline";
+    banner("Reports couldn't be loaded. Check your connection; the app will try again shortly.");
+  }
+}
+
+function render() {
+  for (const k in groups) groups[k].clearLayers();
+  let active = 0;
+  for (const r of reports.values()) {
+    const group = r.cleared ? groups.cleared : groups[r.type];
+    if (!r.cleared) active++;
+    const m = L.marker([r.lat, r.lng], {
+      icon: makeIcon(pinKey(r)), title: describe(r), alt: describe(r),
+      riseOnHover: true, zIndexOffset: r.cleared ? -1000 : (r.type === "fouling" ? 0 : 200)
+    });
+    m.bindPopup(() => popupFor(r), { maxWidth: 260, minWidth: 220 });
+    group.addLayer(m);
+  }
+  $("#count").textContent = active === 1 ? "1 active report" : `${active} active reports`;
+}
+
+function popupFor(r) {
+  const el = document.createElement("div"); el.className = "pop";
+  const t = document.createElement("p"); t.className = "pop-title"; t.textContent = describe(r); el.appendChild(t);
+  const meta = document.createElement("p"); meta.className = "pop-meta";
+  let txt = `Reported ${ago(r.createdAt)}`;
+  if (r.manual) txt += ", pin placed by hand";
+  else if (r.acc) txt += `, accurate to about ${r.acc} m`;
+  if (r.cleared) txt += `. Cleared ${ago(r.clearedAt)}.`;
+  meta.textContent = txt; el.appendChild(meta);
+  if (r.note) { const n = document.createElement("p"); n.className = "pop-note"; n.textContent = r.note; el.appendChild(n); }
+
+  if (r.hasPhoto) {
+    const b = document.createElement("button"); b.className = "pop-btn"; b.textContent = "Show photo";
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = "Loading photo…";
+      const src = await store.get("photo:" + r.id);
+      if (src && src.startsWith("data:image/")) {
+        const img = document.createElement("img"); img.alt = "Photo of " + describe(r).toLowerCase(); img.src = src;
+        img.onload = () => { const p = map._popup; if (p) p.update(); };
+        b.replaceWith(img);
+      } else { b.textContent = "Photo unavailable"; }
+    };
+    el.appendChild(b);
+  }
+  if (!r.cleared) {
+    const c = document.createElement("button"); c.className = "pop-btn clear"; c.textContent = "Mark as cleared";
+    let armed = false;
+    c.onclick = () => {
+      if (!armed) { armed = true; c.textContent = "Tap again to confirm it's gone"; c.classList.add("confirm"); return; }
+      markCleared(r, c);
+    };
+    el.appendChild(c);
+  }
+  return el;
+}
+
+async function markCleared(r, btn) {
+  btn.disabled = true; btn.textContent = "Saving…";
+  let latest = r;
+  try { latest = JSON.parse(await store.get("report:" + r.id)) || r; } catch (e) {}
+  latest = Object.assign({}, latest, { cleared: true, clearedAt: Date.now() });
+  const ok = await store.set("report:" + r.id, JSON.stringify(latest));
+  if (!ok) { btn.disabled = false; btn.classList.remove("confirm"); btn.textContent = "Mark as cleared"; toast("Couldn't save. Try again."); return; }
+  reports.set(r.id, latest); map.closePopup(); render(); toast("Marked as cleared");
+}
+
+/* ---------- Filter / legend panel ---------- */
+(function buildFilters() {
+  const rows = [
+    ["fouling", `${pinSvg("s", .7)}${pinSvg("m", .7)}${pinSvg("l", .7)}`, "Dog fouling"],
+    ["bin", pinSvg("bin", .75), "Full or overflowing bins"],
+    ["bag", pinSvg("bag", .75), "Dropped doggy-waste bags"],
+    ["cleared", pinSvg("cleared", .75), "Cleared reports"]
+  ];
+  const panel = $("#filters");
+  panel.innerHTML = rows.map(([k, sw, label]) =>
+    `<label class="f"><input type="checkbox" data-f="${k}" ${filters[k] ? "checked" : ""}><span class="sw">${sw}</span><span>${label}</span></label>`
+  ).join("") + `<p class="panel-note">Fouling pins get darker and larger with size: small, medium, large.</p>`;
+  panel.addEventListener("change", e => {
+    const k = e.target.dataset.f; if (!k) return;
+    filters[k] = e.target.checked; applyFilters();
+  });
+  const btn = $("#filter-btn");
+  btn.onclick = () => {
+    const open = btn.getAttribute("aria-expanded") === "true";
+    btn.setAttribute("aria-expanded", String(!open)); panel.hidden = open;
+  };
+  map.on("click", () => { if (!panel.hidden) { panel.hidden = true; btn.setAttribute("aria-expanded", "false"); } });
+})();
+
+/* ---------- My location ---------- */
+let meDot = null;
+function locateMe(centre, quiet) {
+  if (!("geolocation" in navigator)) { if (!quiet) toast("This device can't share its location."); return; }
+  navigator.geolocation.getCurrentPosition(p => {
+    const ll = [p.coords.latitude, p.coords.longitude];
+    if (!meDot) meDot = L.circleMarker(ll, { radius: 7, color: "#fff", weight: 3, fillColor: "#1E6FD9", fillOpacity: 1, interactive: false }).addTo(map);
+    else meDot.setLatLng(ll);
+    if (centre) map.setView(ll, 17);
+  }, err => {
+    if (!quiet) toast(err.code === 1 ? "Location access is blocked. Allow it in your browser settings." : "Your location couldn't be found.");
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+}
+$("#locate-btn").onclick = () => locateMe(true, false);
+
+/* ---------- Report flow ---------- */
+const sheet = $("#sheet"), body = $("#sheet-body");
+let draft, watchId = null, draftMarker = null, draftCircle = null, placing = false, step = null;
+
+function resetDraft() { draft = { lat: null, lng: null, acc: null, adjusted: false, type: null, size: null, photo: null, note: "", locError: null }; }
+
+function openReport() {
+  resetDraft(); placing = true; map.closePopup();
+  $("#filters").hidden = true; $("#filter-btn").setAttribute("aria-expanded", "false");
+  document.body.classList.add("reporting"); sheet.hidden = false;
+  showStep("locate"); startWatch();
+}
+function closeReport() {
+  stopWatch(); placing = false;
+  if (draftMarker) { draftMarker.remove(); draftMarker = null; }
+  if (draftCircle) { draftCircle.remove(); draftCircle = null; }
+  sheet.hidden = true; document.body.classList.remove("reporting"); step = null;
+  $("#report-btn").focus();
+}
+$("#report-btn").onclick = openReport;
+$("#sheet-close").onclick = closeReport;
+$("#sheet-back").onclick = () => {
+  if (step === "type") showStep("locate");
+  else if (step === "size") showStep("type");
+  else if (step === "details") showStep(draft.type === "fouling" ? "size" : "type");
+};
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !sheet.hidden) closeReport(); });
+
+function startWatch() {
+  if (!("geolocation" in navigator)) { locFail("This device can't share its location. Tap the map to place the pin."); return; }
+  watchId = navigator.geolocation.watchPosition(p => {
+    if (draft.adjusted) return;
+    draft.locError = null;
+    setDraft(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+  }, err => {
+    if (draft.lat !== null) return;
+    locFail(err.code === 1
+      ? "Location access is blocked. Allow location for this app in your browser settings, or tap the map to place the pin."
+      : "Your location couldn't be found. Tap the map to place the pin.");
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+}
+function stopWatch() { if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; } }
+function locFail(msg) { draft.locError = msg; if (step === "locate") updateLocStatus(); }
+
+function setDraft(lat, lng, acc) {
+  draft.lat = lat; draft.lng = lng; draft.acc = acc;
+  const ll = [lat, lng];
+  if (!draftMarker) {
+    draftMarker = L.marker(ll, { draggable: true, icon: makeIcon("draft"), zIndexOffset: 2000, title: "Report location, drag to adjust", alt: "Report location" }).addTo(map);
+    draftMarker.on("dragend", () => {
+      const p = draftMarker.getLatLng();
+      handPlace(p.lat, p.lng);
+    });
+    map.setView(ll, Math.max(map.getZoom(), 18));
+  } else {
+    draftMarker.setLatLng(ll);
+    if (!map.getBounds().pad(-0.15).contains(ll)) map.panTo(ll);
+  }
+  if (acc) {
+    if (!draftCircle) draftCircle = L.circle(ll, { radius: acc, color: "#1E6FD9", weight: 1, fillOpacity: .12, interactive: false }).addTo(map);
+    else { draftCircle.setLatLng(ll); draftCircle.setRadius(acc); }
+  }
+  if (step === "locate") updateLocStatus();
+}
+function handPlace(lat, lng) {
+  draft.adjusted = true; draft.locError = null; stopWatch();
+  if (draftCircle) { draftCircle.remove(); draftCircle = null; }
+  setDraft(lat, lng, null);
+}
+map.on("click", e => { if (placing && step === "locate") handPlace(e.latlng.lat, e.latlng.lng); });
+
+function updateLocStatus() {
+  const s = $("#loc-status"), btn = $("#use-spot"); if (!s) return;
+  let cls = "", msg;
+  if (draft.adjusted) { cls = "hand"; msg = "Pin placed by hand. Drag it again if it's not quite right."; }
+  else if (draft.lat === null) { msg = draft.locError || "Finding your location…"; }
+  else {
+    const a = Math.round(draft.acc);
+    if (a <= 10) { cls = "good"; msg = `Good fix, accurate to about ${a} m.`; }
+    else if (a <= 25) { cls = "fair"; msg = `Fair fix, accurate to about ${a} m. Drag the pin if it's off.`; }
+    else { cls = "weak"; msg = `Weak fix, about ${a} m. Wait a moment, or drag the pin to the exact spot.`; }
+  }
+  s.innerHTML = `<span class="dot ${cls}"></span><span></span>`;
+  s.lastChild.textContent = msg;
+  btn.disabled = draft.lat === null;
+}
+
+function choiceBtn(icon, title, sub, onClick) {
+  const b = document.createElement("button"); b.className = "choice"; b.type = "button";
+  b.innerHTML = `<span class="ic">${icon}</span><span><strong></strong>${sub ? '<span class="sub"></span>' : ""}</span>`;
+  b.querySelector("strong").textContent = title;
+  if (sub) b.querySelector(".sub").textContent = sub;
+  b.onclick = onClick; return b;
+}
+
+function showStep(name) {
+  step = name;
+  $("#sheet-back").hidden = name === "locate";
+  body.innerHTML = "";
+  const title = $("#sheet-title");
+
+  if (name === "locate") {
+    placing = true;
+    if (draftMarker) draftMarker.dragging.enable();
+    title.textContent = "Where is it?";
+    body.innerHTML = `<p id="loc-status" class="loc-status" aria-live="polite"></p>
+      <p class="hint">Stand by the spot, or drag the yellow pin. You can also tap the map to place it.</p>
+      <button id="use-spot" class="primary" disabled>Use this spot</button>`;
+    $("#use-spot").onclick = () => { stopWatch(); showStep("type"); };
+    updateLocStatus();
+  }
+
+  if (name === "type") {
+    placing = false;
+    if (draftMarker) draftMarker.dragging.disable();
+    title.textContent = "What did you find?";
+    const wrap = document.createElement("div"); wrap.className = "choices";
+    wrap.append(
+      choiceBtn(pinSvg("m", .8), "Dog fouling", "Choose the size next", () => { draft.type = "fouling"; showStep("size"); }),
+      choiceBtn(pinSvg("bin", .8), "Full or overflowing bin", "A dog-waste bin that needs emptying", () => { draft.type = "bin"; draft.size = null; showStep("details"); }),
+      choiceBtn(pinSvg("bag", .8), "Dropped doggy-waste bag", "A bag left on the ground or in a hedge", () => { draft.type = "bag"; draft.size = null; showStep("details"); })
+    );
+    body.appendChild(wrap);
+    wrap.firstChild.focus();
+  }
+
+  if (name === "size") {
+    title.textContent = "How big?";
+    const wrap = document.createElement("div"); wrap.className = "choices";
+    [["s", "Small", "A smear or trodden-in mess"], ["m", "Medium", "A typical dropping"], ["l", "Large", "A big pile, or several together"]]
+      .forEach(([k, t, sub]) => wrap.appendChild(choiceBtn(pinSvg(k, .8), t, sub, () => { draft.size = k; showStep("details"); })));
+    body.appendChild(wrap);
+    wrap.firstChild.focus();
+  }
+
+  if (name === "details") {
+    title.textContent = "Add a photo";
+    const key = draft.type === "fouling" ? draft.size : draft.type;
+    const label = draft.type === "fouling" ? `Dog fouling, ${SIZES[draft.size].toLowerCase()}` : TYPE_LABEL[draft.type];
+    body.innerHTML = `<div class="summary">${pinSvg(key, .6)}<span id="sum-label"></span></div>
+      <div id="photo-area"></div>
+      <label class="field" for="note">Note (optional)</label>
+      <textarea id="note" maxlength="200" placeholder="For example: by the bench at the park gate"></textarea>
+      <p class="notice">Reports and photos can be seen by everyone using the app. Please avoid photographing people or number plates.</p>
+      <button id="send" class="primary">Send report</button>`;
+    $("#sum-label").textContent = label;
+    $("#note").value = draft.note;
+    $("#note").oninput = e => { draft.note = e.target.value; };
+    $("#send").onclick = e => submit(e.currentTarget);
+    renderPhotoArea();
+  }
+}
+
+function renderPhotoArea() {
+  const area = $("#photo-area"); if (!area) return;
+  if (draft.photo) {
+    area.innerHTML = `<div class="photo-preview"><img alt="Your photo" src="${draft.photo}"><div><button class="link-btn" id="photo-remove">Remove photo</button></div></div>`;
+    $("#photo-remove").onclick = () => { draft.photo = null; renderPhotoArea(); };
+  } else {
+    area.innerHTML = `<label class="photo-pick">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      Take or choose a photo (optional)
+      <input id="photo-input" type="file" accept="image/*"></label>`;
+    $("#photo-input").onchange = async e => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      try { draft.photo = await compress(f); renderPhotoArea(); }
+      catch (err) { toast("That photo couldn't be read. Try a different one."); }
+    };
+  }
+}
+
+/* Re-encoding through a canvas shrinks the photo and strips all metadata (including any GPS). */
+function compress(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const max = 1024, w = img.naturalWidth, h = img.naturalHeight, s = Math.min(1, max / Math.max(w, h));
+      const c = document.createElement("canvas"); c.width = Math.round(w * s); c.height = Math.round(h * s);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); resolve(c.toDataURL("image/jpeg", 0.72));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("unreadable image")); };
+    img.src = url;
+  });
+}
+
+async function submit(btn) {
+  if (draft.lat === null || !draft.type) return;
+  btn.disabled = true; btn.textContent = "Sending…";
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const r = {
+    id, type: draft.type, size: draft.type === "fouling" ? draft.size : null,
+    lat: +draft.lat.toFixed(6), lng: +draft.lng.toFixed(6),
+    acc: draft.acc ? Math.round(draft.acc) : null, manual: draft.adjusted,
+    note: draft.note.trim().slice(0, 200), hasPhoto: false,
+    createdAt: Date.now(), cleared: false, clearedAt: null
+  };
+  let photoFailed = false;
+  if (draft.photo) {
+    r.hasPhoto = await store.set("photo:" + id, draft.photo);
+    photoFailed = !r.hasPhoto;
+  }
+  const ok = await store.set("report:" + id, JSON.stringify(r));
+  if (!ok) { btn.disabled = false; btn.textContent = "Send report"; toast("Report couldn't be sent. Check your connection and try again."); return; }
+  reports.set(id, r);
+  if (!filters[r.type]) { filters[r.type] = true; applyFilters(); const cb = document.querySelector(`[data-f="${r.type}"]`); if (cb) cb.checked = true; }
+  closeReport(); render();
+  toast(photoFailed ? "Report sent, but the photo couldn't be saved" : "Report sent");
+}
+
+/* ---------- Start up ---------- */
+if (!shared) banner("Preview mode: reports are kept on this device only and clear when you close the page.");
+loadReports();
+locateMe(true, true);
+setInterval(() => { if (sheet.hidden && !popupOpen && !document.hidden) loadReports(); }, 30000);
+})();
+</script>
+</body>
+</html>
